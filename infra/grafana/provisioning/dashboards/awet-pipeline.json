@@ -1,0 +1,202 @@
+{
+  "annotations": {"list": []},
+  "description": "AWET Pipeline Health Overview",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}},
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "pluginVersion": "10.2.0",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(events_processed_total[1m]))", "refId": "A"}],
+      "title": "Events/sec (All Agents)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}},
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "pluginVersion": "10.2.0",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(rate(events_failed_total[5m]))", "refId": "A"}],
+      "title": "Errors/sec",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 1000}]}},
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "pluginVersion": "10.2.0",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum(kafka_consumer_lag_total)", "refId": "A"}],
+      "title": "Total Consumer Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "short"},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "id": 4,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum by(agent) (rate(events_processed_total[1m]))", "legendFormat": "{{agent}}", "refId": "A"}],
+      "title": "Throughput by Agent",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "s"},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "id": 5,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "histogram_quantile(0.95, sum by(agent, le) (rate(event_latency_seconds_bucket[5m])))", "legendFormat": "{{agent}} p95", "refId": "A"}],
+      "title": "Latency p95 by Agent",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "short"},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "id": 6,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "kafka_consumer_lag_total", "legendFormat": "{{consumer_group}}", "refId": "A"}],
+      "title": "Consumer Lag by Group",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "short"},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "id": 7,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum by(agent, event_type) (rate(events_failed_total[5m]))", "legendFormat": "{{agent}} - {{event_type}}", "refId": "A"}],
+      "title": "Errors by Agent & Type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "thresholds"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.1}, {"color": "red", "value": 0.5}]}, "unit": "s"},
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 22},
+      "id": 8,
+      "options": {"displayMode": "lcd", "minVizHeight": 10, "minVizWidth": 0, "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true, "valueMode": "color"},
+      "pluginVersion": "10.2.0",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "histogram_quantile(0.99, sum by(agent, le) (rate(event_latency_seconds_bucket[5m])))", "legendFormat": "{{agent}}", "refId": "A"}],
+      "title": "Latency p99 Bar Gauge",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "id": 9,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum by(event_type) (rate(events_processed_total[1m]))", "legendFormat": "{{event_type}}", "refId": "A"}],
+      "title": "Events/sec by Topic",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "s"},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "id": 10,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "histogram_quantile(0.50, sum by(le) (rate(event_latency_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "histogram_quantile(0.95, sum by(le) (rate(event_latency_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B"},
+        {"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "histogram_quantile(0.99, sum by(le) (rate(event_latency_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "C"}
+      ],
+      "title": "End-to-End Latency (p50/p95/p99)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "auto", "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}},
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+      "id": 11,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single", "sort": "none"}},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "sum by(decision) (rate(risk_decisions_total[5m]))", "legendFormat": "{{decision}}", "refId": "A"}],
+      "title": "Risk Decisions/sec (Approved vs Rejected)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "dateTimeAsIso"},
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 36},
+      "id": 12,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "pluginVersion": "10.2.0",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "max by(agent) (prediction_last_timestamp_seconds)", "legendFormat": "{{agent}}", "refId": "A"}],
+      "title": "Last Prediction Timestamp",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}},
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 42},
+      "id": 13,
+      "options": {"showHeader": true},
+      "targets": [{"datasource": {"type": "prometheus", "uid": "prometheus"}, "expr": "model_version_info", "legendFormat": "{{agent}} - {{model_version}}", "refId": "A", "format": "table", "instant": true}],
+      "title": "Model Version In Use",
+      "type": "table"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["awet", "trading", "pipeline"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "AWET – Pipeline Health",
+  "uid": "awet-pipeline",
+  "version": 1,
+  "weekStart": ""
+}

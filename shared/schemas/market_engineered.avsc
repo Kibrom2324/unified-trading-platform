@@ -1,0 +1,29 @@
+{
+  "type": "record",
+  "name": "MarketEngineered",
+  "namespace": "awet",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "correlation_id", "type": "string"},
+    {"name": "idempotency_key", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "ts", "type": "string"},
+    {"name": "schema_version", "type": "int"},
+    {"name": "source", "type": "string"},
+    {"name": "price", "type": "double"},
+    {"name": "volume", "type": "double"},
+    {"name": "returns_1", "type": "double", "default": 0.0},
+    {"name": "returns_5", "type": "double", "default": 0.0},
+    {"name": "returns_15", "type": "double", "default": 0.0},
+    {"name": "volatility_5", "type": "double", "default": 0.0},
+    {"name": "volatility_15", "type": "double", "default": 0.0},
+    {"name": "sma_5", "type": "double", "default": 0.0},
+    {"name": "sma_20", "type": "double", "default": 0.0},
+    {"name": "ema_5", "type": "double", "default": 0.0},
+    {"name": "ema_20", "type": "double", "default": 0.0},
+    {"name": "rsi_14", "type": "double", "default": 50.0},
+    {"name": "volume_zscore", "type": "double", "default": 0.0},
+    {"name": "minute_of_day", "type": "int", "default": 0},
+    {"name": "day_of_week", "type": "int", "default": 0}
+  ]
+}

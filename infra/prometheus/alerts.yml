@@ -1,0 +1,103 @@
+groups:
+  - name: unified_trading_platform
+    interval: 30s
+    rules:
+
+      # Kafka consumer lag
+      - alert: ConsumerLagHigh
+        expr: kafka_consumer_lag_total > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag high ({{ $value }} messages)"
+          description: "Consumer group {{ $labels.group_id }} on {{ $labels.topic }} is > 100 messages behind"
+
+      - alert: ConsumerLagCritical
+        expr: kafka_consumer_lag_total > 1000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka consumer lag CRITICAL ({{ $value }} messages)"
+
+      # Agent health
+      - alert: AgentDown
+        expr: up{job=~".*agent.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Agent {{ $labels.instance }} is DOWN"
+
+      # Kill switch
+      - alert: KillSwitchActivated
+        expr: kill_switch_active == 1
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "KILL SWITCH ACTIVATED — all trading halted"
+          description: "Risk kill switch has been triggered. Daily loss limit exceeded."
+
+      # Daily P&L
+      - alert: DailyLossWarning
+        expr: daily_pnl_usd < -3000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Daily P&L warning: ${{ $value }}"
+
+      - alert: DailyLossCritical
+        expr: daily_pnl_usd < -5000
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Daily P&L CRITICAL: ${{ $value }} — approaching kill switch"
+
+      # Model confidence drift
+      - alert: ModelConfidenceDrop
+        expr: histogram_quantile(0.5, model_confidence_score) < 0.2
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TFT model median confidence below 0.2 — possible model drift"
+
+      # Alpaca API errors
+      - alert: AlpacaAPIErrors
+        expr: rate(events_failed_total{agent="execution",error_type="alpaca_api"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alpaca API error rate > 5% — execution degraded"
+
+      # Stale pipeline (no events in market hours)
+      - alert: PipelineStale
+        expr: rate(events_processed_total{agent="data_ingestion"}[10m]) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No events from DataIngestionAgent in 10 minutes during market hours"
+
+      # Abnormal slippage
+      - alert: SlippageAbnormal
+        expr: avg(execution_slippage_bps) > 15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Average slippage {{ $value }} bps — 3x expected (5 bps)"
+
+      # Walk-forward OOS performance
+      - alert: ModelOOSSharpeLow
+        expr: backtest_sharpe_ratio < 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Walk-forward OOS Sharpe < 0 for model {{ $labels.model_id }}, fold {{ $labels.fold }} — model NOT promoted"

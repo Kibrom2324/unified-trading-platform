@@ -1,0 +1,142 @@
+app:
+  environment: local
+  correlation_header: X-Correlation-Id
+  http:
+    host: 0.0.0.0
+    data_ingestion_port: 8001
+    feature_engineering_port: 8002
+    prediction_port: 8003
+    risk_port: 8004
+    execution_port: 8005
+    watchtower_port: 8006
+    orchestrator_port: 8007
+    night_trainer_port: 8008
+    morning_deployer_port: 8009
+    trade_watchdog_port: 8010
+    backtester_port: 8012
+    health_report_port: 8013
+  
+  # ===========================================================================
+  # EXECUTION SAFETY GATES
+  # ===========================================================================
+  # The ExecutionAgent implements THREE safety layers to prevent accidental
+  # real-money trading. All three must be satisfied for trades to be "filled":
+  #
+  # LAYER 1: paper_trade (HARDCODED in execution_agent.py)
+  #   - Always True - cannot be changed via config
+  #   - Ensures no real-money trades are ever possible in this codebase
+  #   - There is NO TradingClient or order submission code
+  #
+  # LAYER 2: execution_dry_run (THIS SETTING)
+  #   - When True (default): ALL trades are blocked, even paper trades
+  #   - Use this during development/testing to observe what WOULD trade
+  #   - Set to False only when you're ready for paper trading simulation
+  #
+  # LAYER 3: execution_approval_file (FILE GATE)
+  #   - Even if dry_run=False, this file must exist for trades to fill
+  #   - Create with: make approve
+  #   - Remove with: make revoke
+  #   - Allows quick enable/disable without config changes
+  #
+  # TO ENABLE PAPER TRADING (when ready):
+  #   1. Set execution_dry_run: false
+  #   2. Run: make approve
+  #   3. Restart agents: pkill -f "src.agents"
+  #
+  # TO RETURN TO SAFE MODE:
+  #   - Set execution_dry_run: true  (or)
+  #   - Run: make revoke
+  # ===========================================================================
+  
+  execution_approval_file: .tmp/APPROVE_EXECUTION
+  execution_default_qty: 1        # Default quantity for paper trades (fallback)
+  execution_dry_run: false        # Safety: when true, ALL trades blocked
+  
+  # ===========================================================================
+  # TRADING LOGIC PARAMETERS
+  # ===========================================================================
+  # Signal thresholds for side decision (based on RiskEvent.direction)
+  # direction "long" → BUY, direction "short" → SELL, else BLOCKED
+  
+  # Position sizing: qty = min(max_trade_notional / price, max_qty)
+  max_trade_notional_usd: 1000    # Max USD per trade (paper money)
+  max_qty_per_trade: 100          # Max shares per trade
+  min_qty_per_trade: 1            # Min shares per trade
+  
+  # Prevent overselling
+  check_position_before_sell: true  # If true, check position before SELL
+
+  # Bracket orders (take-profit + stop-loss)
+  use_bracket_orders: true
+  take_profit_pct: 0.03
+  stop_loss_pct: 0.015
+  allow_add_to_position: false
+  
+  # ===========================================================================
+  # EXECUTION THROTTLES (prevent spammy/duplicate orders)
+  # ===========================================================================
+  # Rate limiting: max orders per time window
+  max_orders_per_minute: 5          # Max orders across all symbols per minute
+  max_orders_per_symbol_per_day: 3  # Max orders for same symbol per day
+  max_open_orders_total: 20         # Max pending/open orders at any time
+  
+  # Cooldown: min seconds between trades on same symbol
+  cooldown_seconds_per_symbol: 900  # 15 minutes default
+  
+  # ===========================================================================
+  # EXPOSURE CAPS (portfolio risk limits)
+  # ===========================================================================
+  # Max total portfolio exposure (sum of all position market values)
+  max_total_exposure_usd: 50000     # $50k total portfolio cap
+  
+  # Max exposure per individual symbol
+  max_exposure_per_symbol_usd: 10000  # $10k per symbol cap
+  
+  # ===========================================================================
+  # EXIT LOGIC (automatic position closing)
+  # ===========================================================================
+  # Enable/disable automatic exits
+  enable_exit_logic: true
+  
+  # Take profit: close position when PnL% >= this value
+  take_profit_pct: 0.03             # 3% profit target
+  
+  # Stop loss: close position when PnL% <= -this value
+  stop_loss_pct: 0.015              # 1.5% max loss
+  
+  # Time-based exit: close after holding for this many minutes
+  max_holding_minutes: 60           # 1 hour max hold
+  
+  # How often to check positions for exit conditions
+  exit_check_interval_seconds: 60   # Check every 60 seconds
+  
+  symbols: ["AAPL", "MSFT", "GOOG", "AMZN", "NVDA", "META", "TSLA"]
+
+trader_decision_agent:
+  port: 8011
+  min_confidence: 0.65
+  buy_return_threshold: 0.005
+  sell_return_threshold: 0.005
+
+data:
+  data_root: "/home/kironix/train"
+  polygon_minute_dir: "poligon/Minute Aggregates"
+  polygon_day_dir: "poligon/Day Aggregates"
+  reddit_submissions_dir: "reddit/submissions"
+  reddit_comments_dir: "reddit/comments"
+  start_date: "2025-07-01"
+  end_date: "2025-07-31"
+
+training:
+  lookback_window: 120
+  horizons: [30, 45, 60]
+  batch_size: 64
+  epochs: 50
+  learning_rate: 0.001
+  hidden_size: 64
+  num_attention_heads: 4
+  dropout: 0.1
+  model_output_dir: "models"
+  onnx_model_path: "models/tft_model.onnx"
+  mlflow_tracking_uri: "http://localhost:5000"
+  mlflow_experiment_name: "awet_tft"

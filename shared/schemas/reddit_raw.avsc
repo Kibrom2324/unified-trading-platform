@@ -1,0 +1,26 @@
+{
+  "type": "record",
+  "name": "RedditRawEvent",
+  "namespace": "awet.reddit",
+  "doc": "Raw Reddit submission/comment data for sentiment analysis",
+  "fields": [
+    {"name": "event_id", "type": "string", "doc": "Unique event ID (UUID)"},
+    {"name": "correlation_id", "type": "string", "doc": "Correlation ID for tracing"},
+    {"name": "idempotency_key", "type": "string", "doc": "Dedup key: {subreddit}_{post_id}"},
+    {"name": "symbol", "type": "string", "doc": "Extracted ticker symbol, if applicable"},
+    {"name": "ts", "type": "string", "doc": "Event timestamp (ISO8601 UTC)"},
+    {"name": "schema_version", "type": "int", "default": 1},
+    {"name": "source", "type": "string", "doc": "Source service name"},
+    {"name": "post_id", "type": "string", "doc": "Reddit post/comment ID"},
+    {"name": "subreddit", "type": "string", "doc": "Subreddit name (e.g., wallstreetbets)"},
+    {"name": "author", "type": ["null", "string"], "default": null, "doc": "Author username"},
+    {"name": "title", "type": ["null", "string"], "default": null, "doc": "Post title (submissions only)"},
+    {"name": "body", "type": ["null", "string"], "default": null, "doc": "Post/comment body text"},
+    {"name": "score", "type": "int", "default": 0, "doc": "Reddit score (upvotes - downvotes)"},
+    {"name": "num_comments", "type": "int", "default": 0, "doc": "Number of comments (submissions only)"},
+    {"name": "created_utc", "type": "long", "doc": "Unix timestamp when posted"},
+    {"name": "is_submission", "type": "boolean", "default": true, "doc": "True if submission, false if comment"},
+    {"name": "permalink", "type": ["null", "string"], "default": null, "doc": "Reddit permalink"},
+    {"name": "extracted_tickers", "type": {"type": "array", "items": "string"}, "default": [], "doc": "Tickers mentioned in text"}
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "Risk",
+  "namespace": "awet",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "correlation_id", "type": "string"},
+    {"name": "idempotency_key", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "ts", "type": "string"},
+    {"name": "schema_version", "type": "int"},
+    {"name": "source", "type": "string"},
+    {"name": "approved", "type": "boolean"},
+    {"name": "reason", "type": "string"},
+    {"name": "risk_score", "type": "double"},
+    {"name": "max_position", "type": "double"},
+    {"name": "max_notional", "type": "double"},
+    {"name": "min_confidence", "type": "double"},
+    {"name": "cvar_95", "type": "double", "default": 0.0},
+    {"name": "max_loss", "type": "double", "default": 0.0},
+    {"name": "direction", "type": "string", "default": "neutral"}
+  ]
+}

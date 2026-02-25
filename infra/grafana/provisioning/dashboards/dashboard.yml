@@ -1,0 +1,7 @@
+apiVersion: 1
+
+dashboards:
+  - name: "awet"
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards

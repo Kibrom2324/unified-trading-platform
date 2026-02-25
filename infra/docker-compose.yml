@@ -1,0 +1,271 @@
+version: "3.9"
+
+# =============================================================================
+# Unified Trading Platform — Docker Compose
+# Combines AWET streaming pipeline + Lean alpha service + Signal Engine
+# =============================================================================
+
+x-common-env: &common-env
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  SCHEMA_REGISTRY_URL: http://schema-registry:8081
+  POSTGRES_HOST: timescaledb
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: ${POSTGRES_USER:-awet}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-awet}
+  POSTGRES_DB: ${POSTGRES_DB:-awet}
+  REDIS_URL: redis://redis:6379/0
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+
+x-agent-base: &agent-base
+  restart: unless-stopped
+  volumes:
+    - ./configs:/app/configs:ro
+    - ./models:/app/models
+    - ./.tmp:/app/.tmp
+  environment:
+    <<: *common-env
+  depends_on:
+    kafka:
+      condition: service_healthy
+    timescaledb:
+      condition: service_healthy
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # INFRASTRUCTURE
+  # ---------------------------------------------------------------------------
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    environment:
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: ${CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 2>/dev/null | grep -q 'Produce'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    ports:
+      - "9092:9092"
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "8081:8081"
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-awet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-awet}
+      POSTGRES_DB: ${POSTGRES_DB:-awet}
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./infra/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-awet}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command: >
+      --config.file=/etc/prometheus/prometheus.yml
+      --storage.tsdb.path=/prometheus
+      --storage.tsdb.retention.time=30d
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on: [prometheus]
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    ports:
+      - "3000:3000"
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri postgresql://${POSTGRES_USER:-awet}:${POSTGRES_PASSWORD:-awet}@timescaledb:5432/${POSTGRES_DB:-awet}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+
+  # ---------------------------------------------------------------------------
+  # DATA PIPELINE AGENTS
+  # ---------------------------------------------------------------------------
+
+  data-ingestion:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/data_ingestion/Dockerfile
+    environment:
+      <<: *common-env
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET: ${ALPACA_SECRET:-}
+    ports:
+      - "8001:8001"
+
+  feature-engineering:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/feature_engineering/Dockerfile
+    ports:
+      - "8002:8002"
+
+  model-inference:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/model_inference/Dockerfile
+    ports:
+      - "8003:8003"
+
+  # NEW: Lean Alpha Service — RSI/EMA/MACD signals
+  lean-alpha:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/lean_alpha/Dockerfile
+    environment:
+      <<: *common-env
+      RSI_WEIGHT: "0.2"
+      EMA_WEIGHT: "0.2"
+      MACD_WEIGHT: "0.1"
+      ALPHA_SIGNAL_TTL_SECONDS: "300"
+    ports:
+      - "8014:8014"
+
+  # NEW: Signal Engine — TFT + Lean alpha ensemble
+  signal-engine:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/signal_engine/Dockerfile
+    environment:
+      <<: *common-env
+      TFT_WEIGHT: "0.5"
+      RSI_WEIGHT: "0.2"
+      EMA_WEIGHT: "0.2"
+      MACD_WEIGHT: "0.1"
+      MIN_SIGNAL_CONFIDENCE: "0.3"
+    ports:
+      - "8015:8015"
+
+  risk-engine:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/risk_engine/Dockerfile
+    environment:
+      <<: *common-env
+      RISK_MAX_POSITION_PCT: ${RISK_MAX_POSITION_PCT:-0.02}
+      RISK_MAX_DAILY_LOSS_PCT: ${RISK_MAX_DAILY_LOSS_PCT:-0.05}
+      RISK_MIN_CONFIDENCE: ${RISK_MIN_CONFIDENCE:-0.3}
+    ports:
+      - "8004:8004"
+
+  execution:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/execution/Dockerfile
+    environment:
+      <<: *common-env
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET: ${ALPACA_SECRET:-}
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+    ports:
+      - "8005:8005"
+
+  exit-monitor:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/exit_monitor/Dockerfile
+    ports:
+      - "8016:8016"
+
+  backtester:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/backtester/Dockerfile
+    ports:
+      - "8012:8012"
+
+  monitoring:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/monitoring/Dockerfile
+    ports:
+      - "8006:8006"
+
+  # ---------------------------------------------------------------------------
+  # MODEL TRAINING (on-demand / cron, not always running)
+  # ---------------------------------------------------------------------------
+  model-training:
+    <<: *agent-base
+    build:
+      context: .
+      dockerfile: services/model_training/Dockerfile
+    environment:
+      <<: *common-env
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./configs:/app/configs:ro
+      - ./models:/app/models
+      - model_training_data:/app/training_data
+    profiles:
+      - training  # Only start with: --profile training
+
+volumes:
+  kafka_data:
+  timescale_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  model_training_data:

@@ -1,0 +1,14 @@
+kafka:
+  bootstrap_servers: ["localhost:9092"]
+  schema_registry_url: "http://localhost:8081"
+  auto_offset_reset: "earliest"
+  topics:
+    predictions_tft: "predictions.tft"
+    trade_decisions: "trade.decisions"
+  group_ids:
+    feature_engineering: "feature-engineering"
+    prediction: "prediction"
+    risk: "risk"
+    execution: "execution"
+    watchtower: "watchtower"
+    trader_decision: "trader-decision-agent"

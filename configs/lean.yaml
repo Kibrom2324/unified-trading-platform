@@ -1,0 +1,28 @@
+# Lean Engine configuration for walk-forward backtesting
+lean:
+  # Algorithm class that uses TFT signals as alpha
+  algorithm_class: "UnifiedBacktestAlgorithm"
+  algorithm_file: "lean/algorithms/unified_backtest.py"
+
+  # Data directory (Lean expects flat files here)
+  data_folder: "/home/kironix/train"
+
+  # Default backtest parameters
+  backtest:
+    start_date: "2024-01-01"
+    end_date: "2025-12-31"
+    initial_cash: 100000
+    resolution: "Minute"
+    brokerage: "Alpaca"
+    account_type: "Cash"
+
+  # Walk-forward (Lean Optimizer integration)
+  walk_forward:
+    enabled: true
+    out_of_sample_days: 30
+    maximum_concurrent_backtests: 2
+
+  # Lean CLI location
+  lean_cli: "lean"
+  lean_workspace: "lean/"
+  lean_config: "lean/configs/lean_backtest.json"

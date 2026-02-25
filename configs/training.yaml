@@ -1,0 +1,24 @@
+# Training configuration
+training:
+  lookback_window: 120
+  horizons: [30, 45, 60]
+  batch_size: 64
+  epochs: 50
+  learning_rate: 0.001
+  hidden_size: 64
+  num_attention_heads: 4
+  dropout: 0.1
+  model_output_dir: "models"
+  onnx_model_path: "models/tft_model.onnx"
+  mlflow_tracking_uri: "http://localhost:5000"
+  mlflow_experiment_name: "unified_tft"
+  # Walk-forward validation
+  walk_forward:
+    enabled: true
+    train_months: 12       # Rolling training window
+    oos_months: 1          # Out-of-sample test window
+    min_folds: 6           # Minimum folds before promoting
+    min_oos_sharpe: 0.5    # Reject model if OOS Sharpe < this
+    min_win_rate: 0.45     # Reject model if OOS win rate < this
+    embargo_bars: 180      # Gap between IS and OOS (lookback 120 + max horizon 60)
+    bars_per_day: 390      # Minute bars (390 min/trading day)

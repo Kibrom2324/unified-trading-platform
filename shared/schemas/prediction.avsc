@@ -1,0 +1,28 @@
+{
+  "type": "record",
+  "name": "Prediction",
+  "namespace": "awet",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "correlation_id", "type": "string"},
+    {"name": "idempotency_key", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "ts", "type": "string"},
+    {"name": "schema_version", "type": "int"},
+    {"name": "source", "type": "string"},
+    {"name": "prediction", "type": "double"},
+    {"name": "confidence", "type": "double"},
+    {"name": "horizon_minutes", "type": "int"},
+    {"name": "model_version", "type": "string"},
+    {"name": "horizon_30_q10", "type": "double", "default": 0.0},
+    {"name": "horizon_30_q50", "type": "double", "default": 0.0},
+    {"name": "horizon_30_q90", "type": "double", "default": 0.0},
+    {"name": "horizon_45_q10", "type": "double", "default": 0.0},
+    {"name": "horizon_45_q50", "type": "double", "default": 0.0},
+    {"name": "horizon_45_q90", "type": "double", "default": 0.0},
+    {"name": "horizon_60_q10", "type": "double", "default": 0.0},
+    {"name": "horizon_60_q50", "type": "double", "default": 0.0},
+    {"name": "horizon_60_q90", "type": "double", "default": 0.0},
+    {"name": "direction", "type": "string", "default": "neutral"}
+  ]
+}

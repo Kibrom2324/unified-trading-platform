@@ -1,0 +1,31 @@
+# Risk engine limits - loaded by src/risk/engine.py
+# Env overrides: RISK_MAX_POSITION_PCT, RISK_MAX_DAILY_LOSS_PCT, etc.
+
+limits:
+  # Max position size as fraction of portfolio (2% = 0.02)
+  max_position_pct: 0.02
+
+  # Max daily loss before kill switch (5% = 0.05)
+  max_daily_loss_pct: 0.05
+
+  # Max 5-min volatility to accept trades (10% = 0.10)
+  max_volatility: 0.10
+
+  # Minimum model confidence to approve
+  min_confidence: 0.3
+
+  # Correlation spike threshold
+  max_correlation_spike: 0.95
+
+  # Kill switch triggers at this daily loss
+  kill_switch_loss_pct: 0.10
+
+# Per-symbol overrides (optional)
+symbol_limits:
+  # Riskier assets get tighter limits
+  NVDA:
+    max_position_pct: 0.015
+    max_volatility: 0.08
+  TSLA:
+    max_position_pct: 0.01
+    max_volatility: 0.12

@@ -1,0 +1,25 @@
+provider: local
+base_url: "http://localhost:11434/v1"
+model: "qwen2.5:32b"
+timeout_seconds: 180
+max_tokens: 4096
+temperature: 0.2
+top_p: 0.9
+concurrency_limit: 4
+
+# ===========================================================================
+# LLM TRACING SETTINGS
+# ===========================================================================
+# Enables always-on observability for all LLM calls across agents.
+# Every call logs: agent, model, latency, request/response previews.
+#
+# View traces:
+#   make llm-watch   # real-time log stream
+#   make llm-last    # last 20 from DB
+#   python scripts/show_llm_traces.py --agent RiskAgent --since "2026-01-16"
+# ===========================================================================
+
+trace_enabled: true              # Enable LLM_TRACE log lines
+trace_preview_chars: 800         # Max chars for request/response previews
+trace_log_level: INFO            # Log level for LLM_TRACE
+trace_store_db: true             # Persist traces to llm_traces table

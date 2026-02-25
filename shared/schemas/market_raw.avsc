@@ -1,0 +1,22 @@
+{
+  "type": "record",
+  "name": "MarketRaw",
+  "namespace": "awet",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "correlation_id", "type": "string"},
+    {"name": "idempotency_key", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "ts", "type": "string"},
+    {"name": "schema_version", "type": "int"},
+    {"name": "source", "type": "string"},
+    {"name": "open", "type": "double", "default": 0.0},
+    {"name": "high", "type": "double", "default": 0.0},
+    {"name": "low", "type": "double", "default": 0.0},
+    {"name": "close", "type": "double", "default": 0.0},
+    {"name": "price", "type": "double"},
+    {"name": "volume", "type": "double"},
+    {"name": "vwap", "type": ["null", "double"], "default": null},
+    {"name": "trades", "type": ["null", "int"], "default": null}
+  ]
+}
