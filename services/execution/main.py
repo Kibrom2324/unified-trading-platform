@@ -64,32 +64,34 @@ FLOW:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from datetime import datetime, timezone
 
-from src.agents.base_agent import BaseAgent
-from src.audit.trail_logger import AuditTrailLogger
-from src.core.config import load_settings
-from src.core.logging import set_correlation_id
-from src.integrations.alpaca_client import (
+from confluent_kafka import Producer as KafkaProducer
+from shared.agents.base_agent import BaseAgent
+from shared.audit.trail_logger import AuditTrailLogger
+from shared.core.config import load_settings
+from shared.core.logging import set_correlation_id
+from services.execution.integrations.alpaca_client import (
     AlpacaClient,
     AlpacaClientError,
     AlpacaLiveEndpointError,
 )
-from src.integrations.trades_repository import (
+from services.execution.integrations.trades_repository import (
     TradeRecord,
     TradesRepository,
     get_trades_repository,
 )
-from src.models.events_execution import ExecutionEvent
-from src.models.events_risk import RiskEvent
-from src.monitoring.metrics import EVENTS_PROCESSED, EVENT_LATENCY
-from src.streaming.kafka_consumer import AvroConsumer
-from src.streaming.kafka_producer import AvroProducer
-from src.streaming.topics import EXECUTION_BLOCKED, EXECUTION_COMPLETED, RISK_APPROVED
+from shared.models.events_execution import ExecutionEvent
+from shared.models.events_risk import RiskEvent
+from shared.monitoring.metrics import EVENTS_PROCESSED, EVENT_LATENCY
+from shared.kafka.consumer import AvroConsumer
+from shared.kafka.producer import AvroProducer
+from shared.kafka.topics import EXECUTION_BLOCKED, EXECUTION_COMPLETED, RISK_APPROVED
 
-RISK_SCHEMA = "src/schemas/risk.avsc"
-EXEC_SCHEMA = "src/schemas/execution.avsc"
+RISK_SCHEMA = "shared/schemas/risk.avsc"
+EXEC_SCHEMA = "shared/schemas/execution.avsc"
 
 
 class ExecutionAgent(BaseAgent):
@@ -131,9 +133,16 @@ class ExecutionAgent(BaseAgent):
         
         self._alpaca_client: AlpacaClient | None = None
         self._init_alpaca_client()
+        # Market clock cache — refreshed at most once per 60 s to avoid
+        # hammering Alpaca's /v2/clock endpoint on every message.
+        self._clock_cache: dict | None = None
         
         self._trades_repo: TradesRepository = get_trades_repository(self.settings)
-        
+
+        # DLQ producer — failed messages go here instead of being silently dropped
+        _bootstrap = ",".join(self.settings.kafka.bootstrap_servers)
+        self._dlq_producer = KafkaProducer({"bootstrap.servers": _bootstrap})
+
         self.logger.info(
             "execution_agent_initialized",
             dry_run=self.settings.app.execution_dry_run,
@@ -145,6 +154,39 @@ class ExecutionAgent(BaseAgent):
             alpaca_enabled=self._alpaca_client is not None,
         )
     
+    async def _is_market_open(self) -> tuple[bool, str | None]:
+        """Return (is_open, next_open_iso_str) using a 60-second TTL cache.
+
+        Fails open on network errors so a transient Alpaca issue doesn't block
+        all paper-trade submissions. Paper API is available 24/7 anyway, but
+        this guard prevents live-mode orders outside market hours.
+        """
+        now = datetime.now(tz=timezone.utc)
+        if (
+            self._clock_cache is not None
+            and (now - self._clock_cache["fetched_at"]).total_seconds() < 60
+        ):
+            return self._clock_cache["is_open"], self._clock_cache.get("next_open")
+
+        if not self._alpaca_client:
+            return True, None  # no client = simulated / dry-run mode; let other gates decide
+
+        try:
+            clock = await self._alpaca_client.get_clock()
+            self._clock_cache = {
+                "is_open": bool(clock.get("is_open", True)),
+                "next_open": clock.get("next_open"),
+                "fetched_at": now,
+            }
+            return self._clock_cache["is_open"], self._clock_cache.get("next_open")
+        except Exception as exc:
+            self.logger.warning(
+                "market_clock_fetch_failed",
+                error=str(exc),
+                note="failing open — order will proceed",
+            )
+            return True, None  # fail open on Alpaca clock error
+
     def _init_alpaca_client(self) -> None:
         try:
             self._alpaca_client = AlpacaClient.from_env()
@@ -173,6 +215,7 @@ class ExecutionAgent(BaseAgent):
     async def _shutdown(self) -> None:
         self.consumer.close()
         self.producer.close()
+        self._dlq_producer.flush()
         await self.audit.close()
         await self._trades_repo.close()
         if self._alpaca_client:
@@ -193,6 +236,21 @@ class ExecutionAgent(BaseAgent):
                     message="Exception in consume loop - continuing",
                     error=str(e),
                 )
+                # Route failed message to DLQ so it can be inspected and replayed
+                try:
+                    raw_value = msg.value() if msg is not None else None
+                    if raw_value is not None:
+                        self._dlq_producer.produce(
+                            f"dlq.{RISK_APPROVED}",
+                            key=None,
+                            value=json.dumps(raw_value).encode()
+                            if isinstance(raw_value, dict)
+                            else str(raw_value).encode(),
+                            headers={"error": str(e).encode()},
+                        )
+                        self._dlq_producer.poll(0)
+                except Exception:
+                    pass  # DLQ failure must never crash the consumer
                 await asyncio.sleep(1.0)
           except asyncio.CancelledError:
               self.logger.info("consume_loop_cancelled")
@@ -484,7 +542,22 @@ class ExecutionAgent(BaseAgent):
                 if not can_buy:
                     error_message = buy_error
                     status = "blocked"
-            
+
+            # Market hours gate — reject orders when the exchange is closed.
+            # We check after all position/exposure gates (cheap) and just before
+            # the Alpaca network call (expensive) so we don't waste API quota.
+            if error_message is None:
+                is_open, next_open = await self._is_market_open()
+                if not is_open:
+                    error_message = "market_closed"
+                    status = "blocked"
+                    self.logger.info(
+                        "market_closed_block",
+                        symbol=event.symbol,
+                        next_open=next_open,
+                        correlation_id=str(event.correlation_id),
+                    )
+
             if error_message is None:
                 if self._alpaca_client:
                     try:
@@ -565,7 +638,26 @@ class ExecutionAgent(BaseAgent):
             ts=start_ts,
         )
         await self._trades_repo.insert_trade(trade)
-        
+
+        # Upsert positions table immediately so exit_monitor sees the fill
+        # without waiting for the 15-minute position_reconciler cycle.
+        # This is the only path that runs when Alpaca credentials are absent.
+        if status == "filled" and filled_qty > 0 and side in ("buy", "sell"):
+            try:
+                await self._trades_repo.upsert_position(
+                    symbol=event.symbol,
+                    side=side,
+                    filled_qty=filled_qty,
+                    avg_fill_price=avg_price,
+                )
+            except Exception as _upsert_err:
+                # Non-fatal: position_reconciler will correct state on next cycle
+                self.logger.warning(
+                    "positions_upsert_failed",
+                    symbol=event.symbol,
+                    error=str(_upsert_err),
+                )
+
         execution = ExecutionEvent(
             idempotency_key=event.idempotency_key,
             symbol=event.symbol,
@@ -587,7 +679,19 @@ class ExecutionAgent(BaseAgent):
         
         self.producer.produce(output_topic, self._exec_schema, payload_out, key=event.symbol)
         await self.audit.write_event(output_topic, payload_out)
-        self.consumer.commit()
+
+        # CF-7: Ensure message is delivered before committing offset
+        # flush() returns the number of messages still in queue (0 = success)
+        undelivered = self.producer.flush(timeout=5.0)
+        if undelivered == 0:
+            self.consumer.commit()
+        else:
+            self.logger.error(
+                "kafka_flush_failed_skipping_commit",
+                undelivered=undelivered,
+                topic=output_topic,
+                symbol=event.symbol,
+            )
         
         duration = (datetime.now(tz=timezone.utc) - start_ts).total_seconds()
         EVENTS_PROCESSED.labels(agent=self.name, event_type=output_topic).inc()

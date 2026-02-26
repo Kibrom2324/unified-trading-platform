@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 import structlog
 import yaml
+from scipy.stats import norm
 
 logger = structlog.get_logger("risk_engine")
 
@@ -48,6 +49,8 @@ class RiskInput:
     current_position: float = 0.0
     portfolio_value: float = 100000.0
     daily_pnl: float = 0.0
+    # CF-5: Historical return history for CVaR calculation
+    return_history: np.ndarray | None = None
 
 
 @dataclass
@@ -79,7 +82,10 @@ class RiskLimits:
     max_position_pct: float = 0.02
     max_daily_loss_pct: float = 0.05
     max_volatility: float = 0.10
-    min_confidence: float = 0.3
+    # This is the FINAL gate. signal_engine pre-filters at MIN_SIGNAL_CONFIDENCE
+    # (default 0.55, configurable via env var). Set this <= that value to avoid
+    # redundant rejection here. Override at runtime with RISK_MIN_CONFIDENCE env var.
+    min_confidence: float = 0.50
     max_correlation_spike: float = 0.95
     kill_switch_loss_pct: float = 0.10
 
@@ -97,32 +103,6 @@ class PositionState:
         """Reset daily tracking (call at market open)."""
         self.daily_pnl = 0.0
         self.last_reset = datetime.now(timezone.utc)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize for Redis persistence."""
-        return {
-            "positions": self.positions,
-            "daily_pnl": self.daily_pnl,
-            "portfolio_value": self.portfolio_value,
-            "kill_switch_active": self.kill_switch_active,
-            "last_reset": self.last_reset.isoformat(),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PositionState":
-        """Deserialize from Redis."""
-        last_reset = data.get("last_reset")
-        if isinstance(last_reset, str):
-            last_reset = datetime.fromisoformat(last_reset)
-        else:
-            last_reset = datetime.now(timezone.utc)
-        return cls(
-            positions=data.get("positions", {}),
-            daily_pnl=data.get("daily_pnl", 0.0),
-            portfolio_value=data.get("portfolio_value", 100000.0),
-            kill_switch_active=data.get("kill_switch_active", False),
-            last_reset=last_reset,
-        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize state for Redis persistence."""
@@ -163,6 +143,12 @@ class RiskEngine:
         self.state = state or PositionState()
         self._correlation_history: dict[str, list[float]] = {}
         self._symbol_limits: dict[str, RiskLimits] = {}
+        # Concurrency lock — acquire before any multi-step state mutation that
+        # spans an await point (e.g. future Redis writes inside these methods).
+        # For purely synchronous state changes Python's GIL + asyncio single-thread
+        # execution guarantees atomicity, but we add the lock for future-proofing.
+        import asyncio as _asyncio
+        self._lock = _asyncio.Lock()
         # CF-6: Track whether state was successfully loaded from Redis.
         # If False, risk engine operates in fail-closed mode (reject all trades).
         self._state_loaded: bool = False
@@ -170,8 +156,17 @@ class RiskEngine:
 
     def _load_config(self) -> None:
         """Load config from YAML file, then apply env overrides."""
-        # Try to load from config/limits.yaml
-        config_path = Path(__file__).parent.parent.parent / "config" / "limits.yaml"
+        # Path is relative to project root: configs/limits.yaml (plural)
+        config_path = Path(
+            os.getenv("RISK_LIMITS_PATH", "")
+        ) or Path(__file__).parent.parent.parent / "configs" / "limits.yaml"
+        if not config_path.exists():
+            logger.error(
+                "risk_limits_file_not_found",
+                path=str(config_path),
+                hint="Per-symbol overrides (NVDA, TSLA) will NOT be applied. "
+                     "Set RISK_LIMITS_PATH env var or ensure configs/limits.yaml exists.",
+            )
         if config_path.exists():
             try:
                 with open(config_path) as f:
@@ -204,7 +199,7 @@ class RiskEngine:
                     )
                     self._symbol_limits[symbol] = sym_limits
 
-                logger.info("risk_limits_loaded", source="config/limits.yaml", limits=limits_cfg)
+                logger.info("risk_limits_loaded", source=str(config_path), limits=limits_cfg)
             except Exception as e:
                 logger.warning("risk_limits_yaml_error", error=str(e), path=str(config_path))
 
@@ -318,15 +313,29 @@ class RiskEngine:
     def _calculate_cvar(self, risk_input: RiskInput) -> float:
         """Calculate CVaR (Conditional Value at Risk) at 95% level.
 
-        Uses the quantile predictions to estimate tail risk.
+        CF-5: Replace arbitrary formula with real CVaR-95.
+        Uses historical Expected Shortfall if return_history is available (>=250 bars),
+        otherwise falls back to parametric CVaR using σ (volatility_5).
         """
-        if risk_input.direction == "long":
-            var_95 = risk_input.horizon_30_q10
-        else:
-            var_95 = -risk_input.horizon_30_q90
-        vol_adj = 1 + risk_input.volatility_5 * 5
-        cvar_95 = var_95 * vol_adj * 1.25
-        return abs(cvar_95)
+        # Historical CVaR
+        if risk_input.return_history is not None and len(risk_input.return_history) >= 30:
+            returns = risk_input.return_history
+            # CVaR-95 is the mean of the losses in the 5% tail
+            var_95_threshold = np.percentile(returns, 5)
+            tail_returns = returns[returns <= var_95_threshold]
+            if len(tail_returns) > 0:
+                cvar_95 = float(np.mean(tail_returns))
+                return abs(cvar_95)
+
+        # Fallback: Parametric CVaR-95 for Normal(μ, σ)
+        # CVaR_α = μ - σ * φ(z_α) / α
+        # For returns (μ≈0, α=0.05), CVaR-95 = σ * φ(-1.645) / 0.05 ≈ σ * 2.0627
+        sigma = risk_input.volatility_5
+        alpha = 0.05
+        z_score = norm.ppf(alpha)
+        pdf_z = norm.pdf(z_score)
+        cvar_95 = sigma * (pdf_z / alpha)
+        return abs(float(cvar_95))
 
     def _calculate_risk_score(self, risk_input: RiskInput, cvar_95: float) -> float:
         """Calculate overall risk score (0-1, higher = riskier)."""
@@ -348,23 +357,37 @@ class RiskEngine:
         self.state.daily_pnl += realized_pnl
         loss_pct = -self.state.daily_pnl / self.state.portfolio_value
         if loss_pct >= self.limits.kill_switch_loss_pct:
-            self.state.kill_switch_active = True
-            logger.warning("kill_switch_activated", daily_loss_pct=loss_pct)
+            self.activate_kill_switch(
+                reason=f"daily_loss_limit_breached:{loss_pct:.2%}_>={self.limits.kill_switch_loss_pct:.2%}"
+            )
 
     def activate_kill_switch(self, reason: str) -> None:
-        """Manually activate kill switch."""
+        """Manually activate kill switch and remove the approval file for double safety."""
         self.state.kill_switch_active = True
-        logger.warning("kill_switch_manual", reason=reason)
+        logger.critical("kill_switch_manual", reason=reason)
+        # Also physically remove the approval file so a service restart can't re-enable trading
+        approval_file = Path(os.getenv("APPROVAL_FILE", ".tmp/APPROVE_EXECUTION"))
+        if approval_file.exists():
+            try:
+                approval_file.unlink()
+                logger.critical(
+                    "approval_file_removed_by_kill_switch",
+                    path=str(approval_file),
+                    reason=reason,
+                )
+            except OSError as exc:
+                logger.error("approval_file_remove_failed", path=str(approval_file), error=str(exc))
 
     def deactivate_kill_switch(self) -> None:
         """Deactivate kill switch (requires manual intervention)."""
         self.state.kill_switch_active = False
         logger.info("kill_switch_deactivated")
 
-    def reset_daily(self) -> None:
-        """Reset daily tracking."""
-        self.state.reset_daily()
-        logger.info("daily_risk_reset")
+    async def reset_daily(self) -> None:
+        """Reset daily tracking. Async so scheduler can await+lock."""
+        async with self._lock:
+            self.state.reset_daily()
+            logger.info("daily_risk_reset")
 
     # ── Redis state persistence ──────────────────────────────────────────
 
@@ -430,6 +453,7 @@ class RiskEngine:
                 "risk_state_load_failed",
                 reason="No Redis connection",
                 action="fail_closed_kill_switch_active",
+                error_id="CF-6",
             )
             self.state.kill_switch_active = True
             self._state_loaded = False

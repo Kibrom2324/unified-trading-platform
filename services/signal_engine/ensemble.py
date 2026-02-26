@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from .regime import RegimeClassifier, Regime
+
 # Signal weights
 TFT_WEIGHT = float(os.getenv("TFT_WEIGHT", "0.5"))
 RSI_WEIGHT = float(os.getenv("RSI_WEIGHT", "0.2"))
@@ -25,6 +27,11 @@ MACD_WEIGHT = float(os.getenv("MACD_WEIGHT", "0.1"))
 # How long to hold an alpha signal as "active" (seconds)
 # EMA/MACD signals are sparse; we carry them for N bars
 SIGNAL_TTL_SECONDS = int(os.getenv("ALPHA_SIGNAL_TTL_SECONDS", "300"))  # 5 minutes
+
+# Maximum age of a TFT signal before it is considered stale.
+# A model inference lag or crash could leave a hours-old ML prediction in cache;
+# blending a stale TFT with fresh alpha signals produces false confidence.
+TFT_SIGNAL_MAX_AGE_SECONDS = int(os.getenv("TFT_SIGNAL_MAX_AGE_SECONDS", "600"))  # 10 min
 
 
 @dataclass
@@ -71,6 +78,12 @@ class SignalEnsemble:
         self._tft: dict[str, TftSignal] = {}
         # Active alpha signals per symbol (list, TTL-pruned)
         self._alphas: dict[str, list[AlphaSignal]] = {}
+        # Regime classifier — keeps rolling SMA-20/50 per symbol
+        self._regime = RegimeClassifier()
+
+    def update_price(self, symbol: str, price: float) -> None:
+        """Feed a live price tick to the regime classifier. Call on every market data event."""
+        self._regime.update(symbol, price)
 
     def update_tft(self, symbol: str, signal: TftSignal) -> None:
         self._tft[symbol] = signal
@@ -89,6 +102,19 @@ class SignalEnsemble:
         """Compute ensemble signal for symbol. Returns None if no TFT signal present."""
         tft = self._tft.get(symbol)
         if tft is None:
+            return None
+
+        # Reject stale TFT signals — model inference may have fallen behind or crashed.
+        # Blending a stale ML prediction with fresh alpha creates false confidence.
+        tft_age = (datetime.now(timezone.utc) - tft.ts).total_seconds()
+        if tft_age > TFT_SIGNAL_MAX_AGE_SECONDS:
+            from . import logger as _log  # local import to avoid circular
+            _log.warning(
+                "stale_tft_signal",
+                symbol=symbol,
+                age_seconds=round(tft_age, 1),
+                max_age=TFT_SIGNAL_MAX_AGE_SECONDS,
+            )
             return None
 
         self._prune_alphas(symbol)
@@ -138,9 +164,14 @@ class SignalEnsemble:
         else:
             direction = "neutral"
 
+        # Regime: get live classification and confidence scale
+        regime = self._regime.get_regime(symbol)
+        regime_scale = self._regime.confidence_scale(symbol)
+
         # Ensemble confidence: absolute value of normalized score, boosted by TFT confidence
+        # then scaled by regime multiplier (1.0x bull / 0.7x bear / 0.5x sideways)
         raw_confidence = abs(norm_score) * 0.7 + tft.confidence * 0.3
-        confidence = max(0.0, min(1.0, raw_confidence))
+        confidence = max(0.0, min(1.0, raw_confidence * regime_scale))
 
         return EnsembleResult(
             ticker=symbol,
@@ -151,4 +182,5 @@ class SignalEnsemble:
             ensemble_confidence=confidence,
             signal_score=norm_score,
             active_alphas=active_alphas,
+            regime=regime.value,
         )

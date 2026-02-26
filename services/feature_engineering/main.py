@@ -65,11 +65,8 @@ class FeatureEngineeringAgent(BaseAgent):
         """Connect to TimescaleDB for feature persistence."""
         if self._db_pool is not None:
             return
-        dsn = (
-            f"postgresql://{_env('POSTGRES_USER', 'awet')}:{_env('POSTGRES_PASSWORD', 'awet')}"
-            f"@{_env('POSTGRES_HOST', 'localhost')}:{_env('POSTGRES_PORT', '5433')}"
-            f"/{_env('POSTGRES_DB', 'awet')}"
-        )
+        from shared.db.dsn import build_dsn
+        dsn = _env("DATABASE_URL") or build_dsn()
         self._db_pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=5)
         self.logger.info("db_connected", dsn=dsn.split("@")[1])
 
@@ -283,11 +280,8 @@ async def run_feature_engineering_batch(
     This is deterministic and idempotent.
     """
     table = "market_raw_day" if source == "day" else "market_raw_minute"
-    dsn = (
-        f"postgresql://{_env('POSTGRES_USER', 'awet')}:{_env('POSTGRES_PASSWORD', 'awet')}"
-        f"@{_env('POSTGRES_HOST', 'localhost')}:{_env('POSTGRES_PORT', '5433')}"
-        f"/{_env('POSTGRES_DB', 'awet')}"
-    )
+    from shared.db.dsn import build_dsn
+    dsn = _env("DATABASE_URL") or build_dsn()
     pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=3)
     total_inserted = 0
     try:

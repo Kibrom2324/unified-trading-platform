@@ -92,6 +92,61 @@ class TradesRepository:
             await self._pool.close()
             self._pool = None
     
+    async def upsert_position(
+        self,
+        symbol: str,
+        side: str,
+        filled_qty: int,
+        avg_fill_price: float | None,
+    ) -> None:
+        """Upsert the positions table immediately after a successful fill.
+
+        Keeps positions current between scheduled reconciliations so that
+        exit_monitor and _check_can_sell always see up-to-date holdings even
+        when Alpaca credentials are absent.
+
+        BUY  → adds qty; recalculates weighted average entry price.
+        SELL → subtracts qty (floored at 0); leaves avg_entry_price unchanged.
+        """
+        if not self._pool or filled_qty <= 0:
+            return
+        price = avg_fill_price or 0.0
+        async with self._pool.acquire() as conn:
+            if side == "buy":
+                await conn.execute(
+                    """
+                    INSERT INTO positions (symbol, qty, avg_entry_price, updated_at)
+                    VALUES ($1, $2, $3, NOW())
+                    ON CONFLICT (symbol) DO UPDATE
+                        SET qty             = positions.qty + EXCLUDED.qty,
+                            avg_entry_price = CASE
+                                WHEN positions.qty + EXCLUDED.qty > 0
+                                THEN (
+                                    positions.avg_entry_price * positions.qty
+                                    + EXCLUDED.avg_entry_price * EXCLUDED.qty
+                                ) / (positions.qty + EXCLUDED.qty)
+                                ELSE EXCLUDED.avg_entry_price
+                            END,
+                            updated_at      = NOW()
+                    """,
+                    symbol.upper(),
+                    filled_qty,
+                    price,
+                )
+            else:  # sell
+                await conn.execute(
+                    """
+                    INSERT INTO positions (symbol, qty, avg_entry_price, updated_at)
+                    VALUES ($1, 0, $2, NOW())
+                    ON CONFLICT (symbol) DO UPDATE
+                        SET qty        = GREATEST(positions.qty - $3, 0),
+                            updated_at = NOW()
+                    """,
+                    symbol.upper(),
+                    price,
+                    filled_qty,
+                )
+
     async def insert_trade(self, trade: TradeRecord) -> int | None:
         """
         Insert a trade record.
@@ -621,13 +676,9 @@ def get_trades_repository(settings) -> TradesRepository:
         TradesRepository instance
     """
     import os
-    
-    dsn = os.getenv(
-        "DATABASE_URL",
-        f"postgresql://{os.getenv('POSTGRES_USER', 'awet')}:"
-        f"{os.getenv('POSTGRES_PASSWORD', 'awet')}"
-        f"@{os.getenv('POSTGRES_HOST', 'localhost')}:"
-        f"{os.getenv('POSTGRES_PORT', '5433')}/"
-        f"{os.getenv('POSTGRES_DB', 'awet')}"
-    )
+    from shared.db.dsn import build_dsn
+ 
+    # Prefer DATABASE_URL env var (set in docker-compose); fall back to build_dsn()
+    # which raises EnvironmentError when POSTGRES_PASSWORD is absent.
+    dsn = os.getenv("DATABASE_URL") or build_dsn()
     return TradesRepository(dsn)

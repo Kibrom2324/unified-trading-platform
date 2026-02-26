@@ -120,7 +120,7 @@ class LeanAlphaService:
             **cfg,
             "group.id": "lean-alpha-service",
             "auto.offset.reset": "latest",
-            "enable.auto.commit": True,
+            "enable.auto.commit": False,  # Manual commit — offsets only advance on success
         })
         self._producer = Producer(cfg)
         self._consumer.subscribe(["market.raw"])
@@ -140,6 +140,8 @@ class LeanAlphaService:
                 try:
                     payload = json.loads(msg.value().decode("utf-8"))
                     self._process_bar(payload)
+                    # Commit only after successful processing
+                    self._consumer.commit(asynchronous=False)
                 except Exception as exc:
                     logger.error("lean_alpha_process_error", error=str(exc))
         finally:

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -43,6 +44,7 @@ from uuid import uuid4
 
 import asyncpg
 import structlog
+from confluent_kafka import Producer as KafkaProducer
 
 # Add project root to path for script usage
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -80,6 +82,8 @@ class ExitAgent:
         self._alpaca_client: AlpacaClient | None = None
         self._trades_repo: TradesRepository | None = None
         self._db_pool: asyncpg.Pool | None = None
+        self._kafka_producer: KafkaProducer | None = None
+        self._kafka_bootstrap = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
         
         # Config
         self.enabled = getattr(self.settings.app, "enable_exit_logic", True)
@@ -106,19 +110,22 @@ class ExitAgent:
         except AlpacaClientError as e:
             self.logger.warning("alpaca_client_not_available", error=str(e))
         
-        # Database
-        dsn = os.getenv(
-            "DATABASE_URL",
-            f"postgresql://{os.getenv('POSTGRES_USER', 'awet')}:"
-            f"{os.getenv('POSTGRES_PASSWORD', 'awet')}"
-            f"@{os.getenv('POSTGRES_HOST', 'localhost')}:"
-            f"{os.getenv('POSTGRES_PORT', '5433')}/"
-            f"{os.getenv('POSTGRES_DB', 'awet')}"
-        )
+        # Database — build_dsn() raises EnvironmentError if POSTGRES_PASSWORD unset
+        from shared.db.dsn import build_dsn
+        dsn = os.getenv("DATABASE_URL") or build_dsn()
         self._db_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
         self._trades_repo = get_trades_repository(self.settings)
         await self._trades_repo.connect()
         self.logger.info("database_connected")
+
+        # Kafka producer — exit.signals gives execution a fast direct path
+        try:
+            self._kafka_producer = KafkaProducer(
+                {"bootstrap.servers": self._kafka_bootstrap}
+            )
+            self.logger.info("kafka_producer_connected", topic="exit.signals")
+        except Exception as e:
+            self.logger.warning("kafka_producer_unavailable", error=str(e))
     
     async def close(self) -> None:
         """Cleanup connections."""
@@ -128,6 +135,9 @@ class ExitAgent:
             await self._trades_repo.close()
         if self._db_pool:
             await self._db_pool.close()
+        if self._kafka_producer:
+            self._kafka_producer.flush()
+            self._kafka_producer = None
     
     def _check_safety_gates(self) -> tuple[bool, str | None]:
         """
@@ -176,7 +186,43 @@ class ExitAgent:
                         "source": "db",
                     })
         
-        # Fallback to Alpaca if no DB positions
+        # Fallback 1: aggregate net open positions from the trades table.
+        # The positions table is only written by position_reconciler (every 15 min,
+        # requires Alpaca creds).  Between reconciliations — or when creds are absent —
+        # the trades table is the only source of truth for what has been filled.
+        # Net qty = SUM(buy qty) - SUM(sell qty) per symbol; only expose symbols
+        # with a net long position.
+        if not positions and self._db_pool:
+            async with self._db_pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        symbol,
+                        SUM(CASE WHEN side = 'buy' THEN qty ELSE -qty END)          AS qty,
+                        AVG(CASE WHEN side = 'buy' THEN avg_fill_price END)          AS avg_price
+                    FROM trades
+                    WHERE status = 'filled'
+                    GROUP BY symbol
+                    HAVING SUM(CASE WHEN side = 'buy' THEN qty ELSE -qty END) > 0
+                    """
+                )
+            for row in rows:
+                positions.append({
+                    "symbol": row["symbol"],
+                    "qty": float(row["qty"]),
+                    "avg_entry_price": float(row["avg_price"] or 0),
+                    "market_value": 0.0,
+                    "updated_at": datetime.now(tz=timezone.utc),
+                    "source": "trades_fallback",
+                })
+            if positions:
+                self.logger.info(
+                    "positions_source",
+                    source="trades_fallback",
+                    count=len(positions),
+                )
+
+        # Fallback 2: Alpaca live positions (requires API credentials)
         if not positions and self._alpaca_client:
             try:
                 alpaca_positions = await self._alpaca_client.get_positions()
@@ -340,7 +386,33 @@ class ExitAgent:
         
         if self._trades_repo:
             await self._trades_repo.insert_trade(trade)
-        
+
+        # Publish to exit.signals so execution can process immediately
+        # This gives exits a fast, dedicated path bypassing the full signal pipeline
+        if self._kafka_producer is not None:
+            try:
+                self._kafka_producer.produce(
+                    "exit.signals",
+                    key=symbol.encode(),
+                    value=json.dumps({
+                        "ticker": symbol,
+                        "action": "EXIT",
+                        "reason": reason,
+                        "qty": qty,
+                        "pnl_pct": round(pnl_pct, 4),
+                        "priority": "HIGH",
+                        "idempotency_key": idempotency_key,
+                        "ts": datetime.now(tz=timezone.utc).isoformat(),
+                    }).encode(),
+                    headers={
+                        "source": b"exit_monitor",
+                        "reason": reason.encode(),
+                    },
+                )
+                self._kafka_producer.poll(0)
+            except Exception as e:
+                self.logger.warning("exit_kafka_publish_failed", symbol=symbol, error=str(e))
+
         return status == "filled"
     
     async def check_positions(self) -> dict[str, Any]:

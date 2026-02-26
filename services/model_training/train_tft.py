@@ -81,11 +81,8 @@ class TFTTrainer:
         import asyncpg
         import os
 
-        dsn = (
-            f"postgresql://{os.getenv('POSTGRES_USER', 'awet')}:{os.getenv('POSTGRES_PASSWORD', 'awet')}"
-            f"@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5433')}"
-            f"/{os.getenv('POSTGRES_DB', 'awet')}"
-        )
+        from shared.db.dsn import build_dsn
+        dsn = os.getenv("DATABASE_URL") or build_dsn()
 
         conn = await asyncpg.connect(dsn)
         logger.info("connected_to_db", dsn=dsn.split("@")[1])

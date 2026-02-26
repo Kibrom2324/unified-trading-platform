@@ -632,7 +632,7 @@ async def main() -> None:
             if not args.watch:
                 break
             
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Refreshing in 60s... (Ctrl+C to stop)")
+            print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] Refreshing in 60s... (Ctrl+C to stop)")
             await asyncio.sleep(60)
             
     except KeyboardInterrupt:

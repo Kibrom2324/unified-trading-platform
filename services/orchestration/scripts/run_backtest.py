@@ -5,7 +5,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +21,7 @@ WARN_IF_DAYS_LESS_THAN = 30
 
 def _default_dates() -> tuple[str, str]:
     """Return default date range (1 year ending yesterday)."""
-    end = datetime.now() - timedelta(days=1)
+    end = datetime.now(timezone.utc) - timedelta(days=1)
     start = end - timedelta(days=365)
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 

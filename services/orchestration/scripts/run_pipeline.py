@@ -13,7 +13,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -125,9 +125,9 @@ def _last_n_lines(text: str, n: int = 40) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_docker_up(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     proc = _run(["docker", "compose", "up", "-d"], timeout=120, cwd=REPO_ROOT)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     output = proc.stdout + proc.stderr
 
@@ -171,7 +171,7 @@ def stage_docker_up(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_preflight(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
 
     # Check docker services
     proc = _run(["docker", "compose", "ps", "--format", "json"], timeout=30)
@@ -179,7 +179,7 @@ def stage_preflight(config: PipelineConfig) -> StageResult:
         return StageResult(
             name="preflight",
             passed=False,
-            duration_seconds=(datetime.now() - start).total_seconds(),
+            duration_seconds=(datetime.now(timezone.utc) - start).total_seconds(),
             message=f"docker compose ps failed: {proc.stderr}",
         )
 
@@ -194,7 +194,7 @@ def stage_preflight(config: PipelineConfig) -> StageResult:
         return StageResult(
             name="preflight",
             passed=False,
-            duration_seconds=(datetime.now() - start).total_seconds(),
+            duration_seconds=(datetime.now(timezone.utc) - start).total_seconds(),
             message=f"Services not running: {', '.join(missing)}",
         )
 
@@ -205,18 +205,18 @@ def stage_preflight(config: PipelineConfig) -> StageResult:
             return StageResult(
                 name="preflight",
                 passed=False,
-                duration_seconds=(datetime.now() - start).total_seconds(),
+                duration_seconds=(datetime.now(timezone.utc) - start).total_seconds(),
                 message="TimescaleDB not accepting connections",
             )
     except Exception as exc:
         return StageResult(
             name="preflight",
             passed=False,
-            duration_seconds=(datetime.now() - start).total_seconds(),
+            duration_seconds=(datetime.now(timezone.utc) - start).total_seconds(),
             message=f"DB connection failed: {exc}",
         )
 
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
     return StageResult(
         name="preflight",
         passed=True,
@@ -231,7 +231,7 @@ def stage_preflight(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_ingest(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/ingest_market_data.py",
@@ -253,7 +253,7 @@ def stage_ingest(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         return StageResult(
@@ -297,7 +297,7 @@ def stage_ingest(config: PipelineConfig) -> StageResult:
 
 def stage_reddit_ingest(config: PipelineConfig) -> StageResult:
     """Ingest Reddit data via PRAW API."""
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/ingest_reddit_july_2025.py",
@@ -320,7 +320,7 @@ def stage_reddit_ingest(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         # Reddit ingest failure is non-fatal - continue pipeline
@@ -344,7 +344,7 @@ def stage_reddit_ingest(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_feature_engineer(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/feature_engineer.py",
@@ -366,7 +366,7 @@ def stage_feature_engineer(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         return StageResult(
@@ -389,7 +389,7 @@ def stage_feature_engineer(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_train(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/train_tft_baseline.py",
@@ -408,7 +408,7 @@ def stage_train(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         return StageResult(
@@ -439,7 +439,7 @@ def stage_train(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_predict(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/predict.py",
@@ -462,7 +462,7 @@ def stage_predict(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         return StageResult(
@@ -485,7 +485,7 @@ def stage_predict(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_decisions(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/decide_trades.py",
@@ -506,7 +506,7 @@ def stage_decisions(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         return StageResult(
@@ -529,7 +529,7 @@ def stage_decisions(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_risk(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/run_risk.py",
@@ -550,7 +550,7 @@ def stage_risk(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         return StageResult(
@@ -573,7 +573,7 @@ def stage_risk(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_execute(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/execute_paper.py",
@@ -596,7 +596,7 @@ def stage_execute(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         return StageResult(
@@ -619,7 +619,7 @@ def stage_execute(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_backtest(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/run_backtest.py",
@@ -641,7 +641,7 @@ def stage_backtest(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         return StageResult(
@@ -709,10 +709,10 @@ async def _verify_backtest_run(config: PipelineConfig) -> str | None:
 
 
 def stage_db_verify(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     try:
         run_id = asyncio.run(_verify_backtest_run(config))
-        duration = (datetime.now() - start).total_seconds()
+        duration = (datetime.now(timezone.utc) - start).total_seconds()
         if not run_id:
             return StageResult(
                 name="db_verify",
@@ -731,7 +731,7 @@ def stage_db_verify(config: PipelineConfig) -> StageResult:
         return StageResult(
             name="db_verify",
             passed=False,
-            duration_seconds=(datetime.now() - start).total_seconds(),
+            duration_seconds=(datetime.now(timezone.utc) - start).total_seconds(),
             message=f"DB verify failed: {exc}",
         )
 
@@ -741,7 +741,7 @@ def stage_db_verify(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_paper_trade(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/paper_trade_smoke.py",
@@ -760,7 +760,7 @@ def stage_paper_trade(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     # Paper trade demo may fail if Alpaca not configured - treat as warning
     if proc.returncode != 0:
@@ -784,7 +784,7 @@ def stage_paper_trade(config: PipelineConfig) -> StageResult:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage_promote(config: PipelineConfig) -> StageResult:
-    start = datetime.now()
+    start = datetime.now(timezone.utc)
     cmd = [
         sys.executable,
         "scripts/promote_model.py",
@@ -804,7 +804,7 @@ def stage_promote(config: PipelineConfig) -> StageResult:
 
     output = proc.stdout + proc.stderr
     _print_verbose(output, config.verbose)
-    duration = (datetime.now() - start).total_seconds()
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
 
     if proc.returncode != 0:
         return StageResult(

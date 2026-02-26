@@ -7,7 +7,7 @@ from typing import Any
 
 import asyncpg
 
-from src.core.config import Settings
+from shared.core.config import Settings
 
 
 def _parse_ts(ts_value: str | datetime) -> datetime:
@@ -25,11 +25,8 @@ class AuditTrailLogger:
     async def connect(self) -> None:
         if self._pool is not None:
             return
-        dsn = (
-            f"postgresql://{_env('POSTGRES_USER', 'awet')}:{_env('POSTGRES_PASSWORD', 'awet')}"
-            f"@{_env('POSTGRES_HOST', 'localhost')}:{_env('POSTGRES_PORT', '5433')}"
-            f"/{_env('POSTGRES_DB', 'awet')}"
-        )
+        from shared.db.dsn import build_dsn
+        dsn = os.getenv("DATABASE_URL") or build_dsn()
         self._pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=5)
 
     async def close(self) -> None:

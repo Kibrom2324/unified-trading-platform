@@ -67,9 +67,10 @@ app:
   check_position_before_sell: true  # If true, check position before SELL
 
   # Bracket orders (take-profit + stop-loss)
+  # take_profit_pct and stop_loss_pct are defined once in EXIT LOGIC below.
+  # Both execution (bracket order leg sizing) and exit_monitor (PnL% thresholds)
+  # read app.take_profit_pct / app.stop_loss_pct — the same single config key.
   use_bracket_orders: true
-  take_profit_pct: 0.03
-  stop_loss_pct: 0.015
   allow_add_to_position: false
   
   # ===========================================================================
@@ -98,6 +99,10 @@ app:
   # Enable/disable automatic exits
   enable_exit_logic: true
   
+  # Shared by execution (bracket order TP/SL leg prices) and exit_monitor (PnL%
+  # thresholds for automatic closing). Both services read app.take_profit_pct and
+  # app.stop_loss_pct from the same key — this is the single source of truth.
+  #
   # Take profit: close position when PnL% >= this value
   take_profit_pct: 0.03             # 3% profit target
   
@@ -114,12 +119,17 @@ app:
 
 trader_decision_agent:
   port: 8011
+  # Confidence cascade — each stage pre-filters for the next (highest floor → lowest):
+  #   1. signal_engine:    MIN_SIGNAL_CONFIDENCE env var (default 0.55) — first pass
+  #   2. risk_engine:      RiskLimits.min_confidence (default 0.50)     — second pass
+  #   3. trader_decision:  this value                                    — final check
+  # Must be >= MIN_SIGNAL_CONFIDENCE env var (default 0.55) to receive any signals.
   min_confidence: 0.65
   buy_return_threshold: 0.005
   sell_return_threshold: 0.005
 
 data:
-  data_root: "/home/kironix/train"
+  data_root: "${DATA_ROOT:-/data/train}"  # Override with DATA_ROOT env var
   polygon_minute_dir: "poligon/Minute Aggregates"
   polygon_day_dir: "poligon/Day Aggregates"
   reddit_submissions_dir: "reddit/submissions"
